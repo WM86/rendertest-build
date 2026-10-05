@@ -40,13 +40,13 @@ jobs:
       - name: 编译核心（renderdoc / renderdoccmd / renderdocshim）
         working-directory: src
         shell: pwsh
-        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 "/t:renderdoc;renderdoccmd;renderdocshim" /m /v:m
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /m /v:m
 
       - name: 编译 32 位 shim
         working-directory: src
         shell: pwsh
         continue-on-error: true
-        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x86 "/t:renderdocshim" /m /v:m
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x86 /m /v:m
 
       - name: 装 Qt
         uses: jurplel/install-qt-action@v4
@@ -59,7 +59,7 @@ jobs:
         working-directory: src
         shell: pwsh
         continue-on-error: true
-        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /p:QtOverridePath="${{ github.workspace }}/qt/${{ env.QT_VERSION }}" /t:qrenderdoc /m /v:m
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /p:QtOverridePath="${{ github.workspace }}/qt/${{ env.QT_VERSION }}" /m /v:m
 
       - name: 收集产物
         shell: pwsh
