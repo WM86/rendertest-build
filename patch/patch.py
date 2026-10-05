@@ -1,53 +1,55 @@
 """
-给 RenderDoc v1.x 打「绕 CrashSight 检测」的特征补丁。
-用法: python patch.py <renderdoc 源码根目录>
+Patch RenderDoc v1.x with the "avoid CrashSight detection" signature changes.
+Usage: python patch.py <renderdoc source root>
 
-改动内容见 workspace 里那份笔记：把 RenderDoc 的牌子相关符号、路径、
-内核对象名、注册表路径、UI 文本全部改成 rendertest*，让检测拿不到 RenderDoc 特征。
+Everything RenderDoc-branded (exported symbols, paths, kernel object names,
+registry keys, UI strings) is renamed to rendertest*, so the anti-cheat's
+signature scan no longer matches.
 
-文件按二进制方式处理，避免踩到编码坑（renderdoc.rc 里有 Latin-1 的版权符）。
+Files are handled as raw bytes on purpose: renderdoc.rc contains a Latin-1
+copyright sign, and text-mode IO with the wrong codec would corrupt it.
 """
 import os
 import sys
 
-# (相对路径, 旧, 新)
+# (relative path, old, new)
 RULES = [
-    # 最核心：DLL 用来判断「当前是不是 replay 环境」的导出符号
+    # Core: the exported symbol the DLL uses to tell "am I inside the replay app"
     ("renderdoc/api/replay/renderdoc_replay.h",
      "renderdoc__replay__marker", "rendertest__replay__marker"),
 
-    # 进程创建与注入的路径
+    # Process creation / injection paths
     ("renderdoc/os/win32/win32_process.cpp", "renderdoccmd.exe", "rendertestcmd.exe"),
     ("renderdoc/os/win32/win32_process.cpp", "renderdocshim64.dll", "rendertestshim64.dll"),
     ("renderdoc/os/win32/win32_process.cpp", "renderdocshim32.dll", "rendertestshim32.dll"),
 
-    # 进程白名单，避免注入到自己身上
+    # Process whitelist so we never inject into ourselves
     ("renderdoc/os/win32/sys_win32_hooks.cpp", "renderdoccmd.exe", "rendertestcmd.exe"),
     ("renderdoc/os/win32/sys_win32_hooks.cpp", "qrenderdoc.exe", "qrendertest.exe"),
 
-    # 崩溃处理里的内核对象名
+    # Crash handling kernel objects
     ("renderdoccmd/renderdoccmd_win32.cpp", "RENDERDOC_CRASHHANDLE", "RENDERTEST_CRASHHANDLE"),
     ("renderdoccmd/renderdoccmd_win32.cpp", "renderdoc.dll", "rendertest.dll"),
     ("renderdoc/core/crash_handler.h", "RenderDocBreakpadServer", "RenderTestBreakpadServer"),
     ("renderdoc/core/crash_handler.h", 'L"RenderDoc\\\\', 'L"RenderTest\\\\'),
 
-    # 注册表 / 日志路径
+    # Registry / log paths
     ("renderdoc/os/win32/win32_stringio.cpp", "qrenderdoc.exe", "qrendertest.exe"),
     ("renderdoc/os/win32/win32_stringio.cpp", "RenderDoc.RDCCapture.1", "RenderTest.RDCCapture.1"),
     ("renderdoc/os/win32/win32_stringio.cpp", 'L"RenderDoc\\\\', 'L"RenderTest\\\\'),
 
-    # OpenGL 窗口类名
+    # OpenGL window class
     ("renderdoc/driver/gl/wgl_platform.cpp", "renderdocGLclass", "rendertestGLclass"),
 
-    # 全局钩子的共享内存名
+    # Global hook shared memory
     ("renderdocshim/renderdocshim.h", "RenderDocGlobalHookData64", "RenderTestGlobalHookData64"),
     ("renderdocshim/renderdocshim.h", "RenderDocGlobalHookData32", "RenderTestGlobalHookData32"),
 
-    # 资源文件
+    # Resource file
     ("renderdoc/data/renderdoc.rc", "Core DLL for RenderDoc", "Core DLL for RenderTest"),
     ("renderdoc/data/renderdoc.rc", '"ProductName", "RenderDoc"', '"ProductName", "RenderTest"'),
 
-    # UI 层
+    # Qt UI layer
     ("qrenderdoc/renderdocui_stub.cpp", "qrenderdoc.exe", "qrendertest.exe"),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"QRenderDoc initialising."', '"QRenderTest initialising."'),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"Qt UI for RenderDoc"', '"Qt UI for RenderTest"'),
@@ -58,9 +60,14 @@ RULES = [
 ]
 
 
+def emit(msg):
+    sys.stdout.write(msg + "\n")
+    sys.stdout.flush()
+
+
 def main():
     if len(sys.argv) < 2:
-        print("用法: python patch.py <renderdoc 源码根目录>")
+        emit("usage: python patch.py <renderdoc-source-root>")
         return 1
     root = sys.argv[1]
 
@@ -68,7 +75,7 @@ def main():
     for rel, old, new in RULES:
         path = os.path.join(root, rel.replace("/", os.sep))
         if not os.path.exists(path):
-            print(f"缺文件  {rel}")
+            emit("MISSING  " + rel)
             miss += 1
             continue
         with open(path, "rb") as f:
@@ -77,15 +84,16 @@ def main():
         nb = new.encode("latin-1")
         n = data.count(ob)
         if n == 0:
-            print(f"未命中  {rel}  <- {old[:44]}")
+            emit("NOHIT    " + rel + "  <- " + old[:44])
             miss += 1
             continue
         with open(path, "wb") as f:
             f.write(data.replace(ob, nb))
-        print(f"OK      {rel}  {old[:44]}  x{n}")
+        emit("OK       " + rel + "  " + old[:44] + "  x" + str(n))
         hit += n
 
-    print(f"\n共替换 {hit} 处，未命中 {miss} 项")
+    emit("")
+    emit("replaced=%d  missed=%d" % (hit, miss))
     return 0
 
 
