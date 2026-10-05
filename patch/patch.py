@@ -18,6 +18,13 @@ RULES = [
     ("renderdoc/api/replay/renderdoc_replay.h",
      "renderdoc__replay__marker", "rendertest__replay__marker"),
 
+    # ...and the other half of that check: the loader looks the marker up by
+    # runtime name built from RDOC_BASE_NAME ("renderdoc" + "__replay__marker").
+    # Leave RDOC_BASE_NAME itself alone - it also names renderdoc.dll, which the
+    # exes link statically, so that file can't be renamed.
+    ("renderdoc/os/win32/win32_libentry.cpp",
+     'STRINGIZE(RDOC_BASE_NAME) "__replay__marker"', '"rendertest" "__replay__marker"'),
+
     # Process creation / injection paths
     ("renderdoc/os/win32/win32_process.cpp", "renderdoccmd.exe", "rendertestcmd.exe"),
     ("renderdoc/os/win32/win32_process.cpp", "renderdocshim64.dll", "rendertestshim64.dll"),
