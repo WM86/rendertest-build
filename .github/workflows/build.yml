@@ -1,0 +1,80 @@
+name: build-rendertest
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+env:
+  QT_VERSION: 5.15.2
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: 取本仓库（补丁脚本）
+        uses: actions/checkout@v4
+
+      - name: 取 RenderDoc v1.x 源码
+        uses: actions/checkout@v4
+        with:
+          repository: baldurk/renderdoc
+          ref: v1.x
+          path: src
+          fetch-depth: 1
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 打补丁（改签名 / 路径 / 内核对象名）
+        shell: pwsh
+        run: python patch/patch.py "${{ github.workspace }}/src"
+
+      - name: 配置 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 编译核心（renderdoc / renderdoccmd / renderdocshim）
+        working-directory: src
+        shell: pwsh
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 "/t:renderdoc;renderdoccmd;renderdocshim" /m /v:m
+
+      - name: 编译 32 位 shim
+        working-directory: src
+        shell: pwsh
+        continue-on-error: true
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x86 "/t:renderdocshim" /m /v:m
+
+      - name: 装 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2019_64
+          dir: ${{ github.workspace }}/qt
+
+      - name: 编译 UI
+        working-directory: src
+        shell: pwsh
+        continue-on-error: true
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /p:QtOverridePath="${{ github.workspace }}/qt/${{ env.QT_VERSION }}" /t:qrenderdoc /m /v:m
+
+      - name: 收集产物
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          if (Test-Path src/x64/Release) { Copy-Item -Recurse -Force src/x64/Release/* out/ }
+          if (Test-Path src/Win32/Release) {
+            New-Item -ItemType Directory -Force -Path out/x86 | Out-Null
+            Copy-Item -Recurse -Force src/Win32/Release/* out/x86/
+          }
+          Get-ChildItem out -Recurse -File | Select-Object -First 40 FullName, Length
+
+      - name: 上传
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendertest-x64
+          path: out/**
+          if-no-files-found: error
