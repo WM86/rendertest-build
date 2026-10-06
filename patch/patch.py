@@ -227,6 +227,34 @@ RULES = [
      "<TargetName>renderdocui</TargetName>",
      "<TargetName>rendertestui</TargetName>\n    "
      "<UACExecutionLevel>RequireAdministrator</UACExecutionLevel>"),
+
+    # --- 诊断用：鸣潮 3.7 换成 D3D12 之后钩子一次都没触发过 ---
+    # 1) 注册时把 d3d12.dll / d3dcompiler 的句柄打出来，判断钩子注册的时机对不对
+    ("renderdoc/driver/d3d12/d3d12_hooks.cpp",
+     'RDCLOG("Registering D3D12 hooks");',
+     'RDCLOG("Registering D3D12 hooks (d3d12.dll=%p d3dcompiler=%p)",\n'
+     '            (void *)GetModuleHandleA("d3d12.dll"), (void *)GetD3DCompiler());'),
+
+    # 2) 钩子入口：被调用过就一定会打这一行。没有这行 = 游戏没走这个导出
+    ("renderdoc/driver/d3d12/d3d12_hooks.cpp",
+     '    PFN_D3D12_CREATE_DEVICE createFunc = d3d12hooks.CreateDevice();\n'
+     '\n'
+     '    if(!createFunc)',
+     '    RDCLOG("D3D12CreateDevice_hook ENTER (orig=%p)", (void *)d3d12hooks.CreateDevice());\n'
+     '\n'
+     '    PFN_D3D12_CREATE_DEVICE createFunc = d3d12hooks.CreateDevice();\n'
+     '\n'
+     '    if(!createFunc)'),
+
+    # 3) Create_Internal 原本是 RDCDEBUG（默认不输出），提到 RDCLOG
+    ("renderdoc/driver/d3d12/d3d12_hooks.cpp",
+     'RDCDEBUG("Call to Create_Internal Feature Level %x", MinimumFeatureLevel, ToStr(riid).c_str());',
+     'RDCLOG("Call to Create_Internal Feature Level %x riid=%s", MinimumFeatureLevel, ToStr(riid).c_str());'),
+
+    # 4) 函数级钩子真正挂上时会走这里；同样提级
+    ("renderdoc/driver/d3d12/d3d12_hooks.cpp",
+     'RDCDEBUG("Called real createdevice... HRESULT: %s", ToStr(ret).c_str());',
+     'RDCLOG("Called real createdevice... HRESULT: %s", ToStr(ret).c_str());'),
 ]
 
 

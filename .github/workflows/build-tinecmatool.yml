@@ -41,6 +41,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 插诊断日志（D3D12 钩子）
+        shell: pwsh
+        run: |
+          python patch/diag.py "${{ github.workspace }}/src"
+          if ($LASTEXITCODE -ne 0) { throw "diag.py 有规则没匹配上" }
+          Write-Output "--- 校验 ---"
+          Select-String -Path src/renderdoc/driver/d3d12/d3d12_hooks.cpp -Pattern 'diag' | ForEach-Object { $_.Line.Trim() }
+
       - name: 配置 MSBuild
         uses: microsoft/setup-msbuild@v2
 
