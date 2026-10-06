@@ -45,11 +45,139 @@ RULES = [
     ("renderdoc/os/win32/sys_win32_hooks.cpp", "renderdoccmd.exe", "rendertestcmd.exe"),
     ("renderdoc/os/win32/sys_win32_hooks.cpp", "qrenderdoc.exe", "qrendertest.exe"),
 
+    # Injection itself. CrashSight watches for CreateRemoteThread, which is
+    # exactly how RenderDoc loads the replay DLL, so hijack the suspended main
+    # thread instead and only fall back to the remote thread if that fails.
+    ("renderdoc/os/win32/win32_process.cpp",
+     """    if(success)
+    {
+      HANDLE hThread = CreateRemoteThread(
+          hProcess, NULL, 1024 * 1024U,
+          (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
+      if(hThread)
+      {
+        WaitForSingleObject(hThread, INFINITE);
+        CloseHandle(hThread);
+      }
+      else
+      {
+        RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+      }
+    }
+    else
+    {
+      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
+             GetLastError());
+    }
+
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);""",
+     """    bool keepMem = false;
+
+    if(success)
+    {
+      // The target is created suspended and has not executed a single
+      // instruction yet, so its main thread can be aimed straight at
+      // LoadLibraryW: push a return address, put the path in RCX, set RIP to
+      // the loader and let the caller resume it. LoadLibraryW runs, returns
+      // into the saved RIP, and the process carries on as if nothing happened.
+      // No remote thread is ever created.
+      bool injected = false;
+
+#if ENABLED(RDOC_X64)
+      {
+        DWORD pid = GetProcessId(hProcess);
+        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+
+        if(hSnap != INVALID_HANDLE_VALUE)
+        {
+          THREADENTRY32 te;
+          RDCEraseEl(te);
+          te.dwSize = sizeof(te);
+
+          if(Thread32First(hSnap, &te))
+          {
+            do
+            {
+              if(te.dwSize < FIELD_OFFSET(THREADENTRY32, th32OwnerProcessID) +
+                                 sizeof(te.th32OwnerProcessID) ||
+                 te.th32OwnerProcessID != pid)
+                continue;
+
+              HANDLE hThread = OpenThread(
+                  THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE,
+                  te.th32ThreadID);
+
+              if(hThread == NULL)
+                continue;
+
+              SuspendThread(hThread);
+
+              CONTEXT ctx;
+              RDCEraseEl(ctx);
+              ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+
+              if(GetThreadContext(hThread, &ctx))
+              {
+                uint64_t retAddr = ctx.Rip;
+                ctx.Rsp -= sizeof(uint64_t);
+                ctx.Rcx = (uint64_t)remoteMem;
+                ctx.Rip = (uint64_t)GetProcAddress(kernel32, "LoadLibraryW");
+
+                if(WriteProcessMemory(hProcess, (void *)ctx.Rsp, &retAddr, sizeof(retAddr), NULL) &&
+                   SetThreadContext(hThread, &ctx))
+                {
+                  injected = true;
+                  // LoadLibraryW still has to read the path after we return,
+                  // so this little block stays mapped for the life of the
+                  // process rather than being freed below.
+                  keepMem = true;
+                }
+                else
+                {
+                  RDCERR("SetThreadContext injection failed: %u", GetLastError());
+                }
+              }
+
+              ResumeThread(hThread);
+              CloseHandle(hThread);
+            } while(!injected && Thread32Next(hSnap, &te));
+          }
+
+          CloseHandle(hSnap);
+        }
+      }
+#endif
+
+      if(!injected)
+      {
+        HANDLE hThread = CreateRemoteThread(
+            hProcess, NULL, 1024 * 1024U,
+            (LPTHREAD_START_ROUTINE)GetProcAddress(kernel32, "LoadLibraryW"), remoteMem, 0, NULL);
+        if(hThread)
+        {
+          WaitForSingleObject(hThread, INFINITE);
+          CloseHandle(hThread);
+        }
+        else
+        {
+          RDCERR("Couldn't create remote thread for LoadLibraryW: %u", GetLastError());
+        }
+      }
+    }
+    else
+    {
+      RDCERR("Couldn't write remote memory %p with dllPath '%ls': %u", remoteMem, dllPath,
+             GetLastError());
+    }
+
+    if(!keepMem)
+      VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);"""),
+
     # Crash handling kernel objects
     ("renderdoccmd/renderdoccmd_win32.cpp", "RENDERDOC_CRASHHANDLE", "RENDERTEST_CRASHHANDLE"),
     ("renderdoccmd/renderdoccmd_win32.cpp", "renderdoc.dll", "rendertest.dll"),
     ("renderdoc/core/crash_handler.h", "RenderDocBreakpadServer", "RenderTestBreakpadServer"),
-    ("renderdoc/core/crash_handler.h", 'L"RenderDoc\\\\', 'L"RenderTest\\\\'),
+    ("renderdoc/core/crash_handler.h", 'RenderDoc\\\\dumps\\\\a', 'RenderTest\\\\dumps\\\\a'),
 
     # Registry / log paths
     ("renderdoc/os/win32/win32_stringio.cpp", "qrenderdoc.exe", "qrendertest.exe"),
@@ -74,7 +202,7 @@ RULES = [
     ("qrenderdoc/renderdocui_stub.cpp", "qrenderdoc.exe", "qrendertest.exe"),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"QRenderDoc initialising."', '"QRenderTest initialising."'),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"Qt UI for RenderDoc"', '"Qt UI for RenderTest"'),
-    ("qrenderdoc/Code/qrenderdoc.cpp", '"QRenderDoc v%s"', '"QRenderTest v%s"'),
+    ("qrenderdoc/Code/qrenderdoc.cpp", 'printf("QRenderDoc v%s', 'printf("QRenderTest v%s'),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"qrenderdoc"', '"qrendertest"'),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"QRenderDoc"', '"QRenderTest"'),
     ("qrenderdoc/Windows/MainWindow.cpp", '"RenderDoc "', '"RenderTest "'),
@@ -83,9 +211,22 @@ RULES = [
     ("qrenderdoc/Windows/Dialogs/UpdateDialog.cpp", '"renderdoc.dll"', '"rendertest.dll"'),
 
     # The little launcher stub that spawns qrendertest.exe - rename its output
-    # too, otherwise a stray renderdocui.exe still sits next to the build.
+    # too, otherwise a stray renderdocui.exe still sits next to the build. The
+    # stub has to ask for admin or the elevated game it spawns cannot be
+    # injected.
     ("qrenderdoc/renderdocui_stub.vcxproj",
-     "<TargetName>renderdocui</TargetName>", "<TargetName>rendertestui</TargetName>"),
+     "<RootNamespace>renderdocui_stub</RootNamespace>",
+     "<RootNamespace>rendertestui_stub</RootNamespace>"),
+    ("qrenderdoc/renderdocui_stub.vcxproj",
+     "<ProjectName>renderdocui_stub</ProjectName>",
+     "<ProjectName>rendertestui_stub</ProjectName>"),
+    ("qrenderdoc/renderdocui_stub.vcxproj",
+     "<PrimaryOutput>renderdocui</PrimaryOutput>",
+     "<PrimaryOutput>rendertestui</PrimaryOutput>"),
+    ("qrenderdoc/renderdocui_stub.vcxproj",
+     "<TargetName>renderdocui</TargetName>",
+     "<TargetName>rendertestui</TargetName>\n    "
+     "<UACExecutionLevel>RequireAdministrator</UACExecutionLevel>"),
 ]
 
 
@@ -112,6 +253,11 @@ def main():
         ob = old.encode("latin-1")
         nb = new.encode("latin-1")
         n = data.count(ob)
+        if n == 0 and b"\n" in ob:
+            # rules are written with plain newlines; retry against CRLF sources
+            ob = ob.replace(b"\n", b"\r\n")
+            nb = nb.replace(b"\n", b"\r\n")
+            n = data.count(ob)
         if n == 0:
             emit("NOHIT    " + rel + "  <- " + old[:44])
             miss += 1
