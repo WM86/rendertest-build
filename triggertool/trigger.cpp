@@ -40,16 +40,18 @@ static bool TryGetApi()
     if (!h)
         return false;
 
-    pRENDERDOC_GetAPI getApi = (pRENDERDOC_GetAPI)GetProcAddress(h, "RENDERDOC_GetAPI");
+    pTINECMATOOL_GetAPI getApi = (pTINECMATOOL_GetAPI)GetProcAddress(h, "TINECMATOOL_GetAPI");
+    if (!getApi)
+        getApi = (pTINECMATOOL_GetAPI)GetProcAddress(h, "RENDERDOC_GetAPI");
     if (!getApi)
     {
-        LogF("module loaded but no RENDERDOC_GetAPI");
+        LogF("module loaded but no TINECMATOOL_GetAPI");
         return false;
     }
 
     if (!getApi(eRENDERDOC_API_Version_1_6_0, (void**)&g_api) || !g_api)
     {
-        LogF("RENDERDOC_GetAPI returned nothing");
+        LogF("TINECMATOOL_GetAPI returned nothing");
         return false;
     }
 
