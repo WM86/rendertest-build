@@ -1,0 +1,89 @@
+name: build-tinecmatool
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - '.github/workflows/build-tinecmatool.yml'
+
+env:
+  QT_VERSION: 5.15.2
+  SRC_REPO: Tinenc/GraphicsDebugger
+  SRC_REF: 6aca0a0d33964435af2ce8d96990d70830c71451
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      - name: 取本仓库
+        uses: actions/checkout@v4
+
+      - name: 取 TinecmaTools 源码
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SRC_REF }}
+          path: src
+          fetch-depth: 1
+
+      - name: 确认源码版本
+        shell: pwsh
+        working-directory: src
+        run: |
+          git log -1 --format="%H %ad %s"
+          Select-String -Path CMakeLists.txt -Pattern "RDOC_BASE_NAME" | Select-Object -First 3
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 配置 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 编译核心（x64）
+        working-directory: src
+        shell: pwsh
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /m /v:m
+
+      - name: 编译 32 位 shim
+        working-directory: src
+        shell: pwsh
+        continue-on-error: true
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x86 /m /v:m
+
+      - name: 装 Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2019_64
+          dir: ${{ github.workspace }}/qt
+
+      - name: 编译 UI
+        working-directory: src
+        shell: pwsh
+        continue-on-error: true
+        run: msbuild renderdoc.sln /p:Configuration=Release /p:Platform=x64 /p:QtOverridePath="${{ github.workspace }}/qt/${{ env.QT_VERSION }}" /m /v:m
+
+      - name: 收集产物
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          if (Test-Path src/x64/Release) { Copy-Item -Recurse -Force src/x64/Release/* out/ }
+          if (Test-Path src/Win32/Release) {
+            New-Item -ItemType Directory -Force -Path out/x86 | Out-Null
+            Copy-Item -Recurse -Force src/Win32/Release/* out/x86/
+          }
+          Get-ChildItem out -Recurse -File -Include *.pdb,*.lib,*.exp,*.iobj,*.ipdb,*.tlog,*.ilk,*.obj,*.res | Remove-Item -Force
+          Get-ChildItem out -Recurse -Directory -Filter obj | Remove-Item -Recurse -Force
+          Get-ChildItem out -Recurse -File | Select-Object -First 60 FullName, Length
+
+      - name: 上传
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinecmatool-x64
+          path: out/**
+          if-no-files-found: error
