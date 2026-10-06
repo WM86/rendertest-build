@@ -15,27 +15,38 @@ static const char*    kTemplate = "I:\\tinecmatool-new\\captures\\wuwa";
 
 static void LogF(const char* fmt, ...)
 {
-    FILE* f = NULL;
-    if (_wfopen_s(&f, kLogFile, L"a, ccs=UTF-8") != 0 || !f)
-        return;
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    fprintf(f, "[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond);
+    char body[512];
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(f, fmt, ap);
+    int n = _vsnprintf_s(body, sizeof(body) - 1, _TRUNCATE, fmt, ap);
     va_end(ap);
-    fputc('\n', f);
-    fclose(f);
+    if (n < 0)
+        n = 0;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char line[640];
+    int m = _snprintf_s(line, sizeof(line), _TRUNCATE, "[%02d:%02d:%02d] %s\r\n",
+                        st.wHour, st.wMinute, st.wSecond, body);
+    if (m < 0)
+        return;
+
+    HANDLE h = CreateFileW(kLogFile, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE)
+        return;
+    DWORD wrote = 0;
+    WriteFile(h, line, (DWORD)m, &wrote, NULL);
+    CloseHandle(h);
 }
 
 static RENDERDOC_API_1_6_0* g_api = NULL;
 
-static bool TryGetApi()
+static bool TryGetApi(bool allowLoad)
 {
     HMODULE h = GetModuleHandleW(L"TinecmaTool.dll");
     bool injected = (h != NULL);
-    if (!h)
+    if (!h && allowLoad)
         h = LoadLibraryW(kRdocDll);
     if (!h)
         return false;
@@ -73,11 +84,23 @@ static DWORD WINAPI Worker(LPVOID)
 {
     LogF("worker start, pid=%lu", (unsigned long)GetCurrentProcessId());
 
-    for (int i = 0; i < 900 && !g_api; i++)
+    // phase 1: only look for a module that was injected - never load it ourselves
+    // while the game is still coming up (loading renderdoc this early kills it).
+    for (int i = 0; i < 120 && !g_api; i++)
     {
-        if (!TryGetApi())
-            Sleep(1000);
+        if (!TryGetApi(false) && (i % 10) == 0)
+            LogF("phase1 waiting for injected module, %ds", i);
+        Sleep(1000);
     }
+
+    // phase 2: nothing showed up, fall back to loading it ourselves
+    for (int i = 0; i < 780 && !g_api; i++)
+    {
+        if (!TryGetApi(true) && (i % 10) == 0)
+            LogF("phase2 trying self-load, %ds", i);
+        Sleep(1000);
+    }
+
     if (!g_api)
     {
         LogF("worker: no api, giving up");
