@@ -19,11 +19,22 @@ RULES = [
      "renderdoc__replay__marker", "rendertest__replay__marker"),
 
     # ...and the other half of that check: the loader looks the marker up by
-    # runtime name built from RDOC_BASE_NAME ("renderdoc" + "__replay__marker").
-    # Leave RDOC_BASE_NAME itself alone - it also names renderdoc.dll, which the
-    # exes link statically, so that file can't be renamed.
+    # runtime name built from RDOC_BASE_NAME. That macro is pinned to
+    # "rendertest" in renderdoc.vcxproj further down, so the name built here and
+    # the literal marker exported above end up the same.
     ("renderdoc/os/win32/win32_libentry.cpp",
      'STRINGIZE(RDOC_BASE_NAME) "__replay__marker"', '"rendertest" "__replay__marker"'),
+
+    # The core DLL itself: renderdoc.dll -> rendertest.dll. RDOC_BASE_NAME is
+    # what the module name, replay marker, log prefixes and crash handler are all
+    # built from, so pin it explicitly instead of letting it follow
+    # $(ProjectName); ProjectName and TargetName move with it so the output file,
+    # import library and Vulkan layer JSON all come out as rendertest.
+    ("renderdoc/renderdoc.vcxproj",
+     "<ProjectName>renderdoc</ProjectName>",
+     "<ProjectName>rendertest</ProjectName>\r\n    <TargetName>rendertest</TargetName>"),
+    ("renderdoc/renderdoc.vcxproj",
+     "RDOC_BASE_NAME=$(ProjectName)", "RDOC_BASE_NAME=rendertest"),
 
     # Process creation / injection paths
     ("renderdoc/os/win32/win32_process.cpp", "renderdoccmd.exe", "rendertestcmd.exe"),
@@ -52,9 +63,12 @@ RULES = [
     ("renderdocshim/renderdocshim.h", "RenderDocGlobalHookData64", "RenderTestGlobalHookData64"),
     ("renderdocshim/renderdocshim.h", "RenderDocGlobalHookData32", "RenderTestGlobalHookData32"),
 
-    # Resource file
+    # Resource file - the DLL name shows up in two version fields
     ("renderdoc/data/renderdoc.rc", "Core DLL for RenderDoc", "Core DLL for RenderTest"),
     ("renderdoc/data/renderdoc.rc", '"ProductName", "RenderDoc"', '"ProductName", "RenderTest"'),
+    ("renderdoc/data/renderdoc.rc", '"InternalName", "renderdoc"', '"InternalName", "rendertest"'),
+    ("renderdoc/data/renderdoc.rc", '"OriginalFilename", "renderdoc.dll"',
+     '"OriginalFilename", "rendertest.dll"'),
 
     # Qt UI layer
     ("qrenderdoc/renderdocui_stub.cpp", "qrenderdoc.exe", "qrendertest.exe"),
@@ -64,6 +78,9 @@ RULES = [
     ("qrenderdoc/Code/qrenderdoc.cpp", '"qrenderdoc"', '"qrendertest"'),
     ("qrenderdoc/Code/qrenderdoc.cpp", '"QRenderDoc"', '"QRenderTest"'),
     ("qrenderdoc/Windows/MainWindow.cpp", '"RenderDoc "', '"RenderTest "'),
+
+    # Last literal reference to the core DLL by name
+    ("qrenderdoc/Windows/Dialogs/UpdateDialog.cpp", '"renderdoc.dll"', '"rendertest.dll"'),
 ]
 
 
