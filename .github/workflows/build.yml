@@ -70,6 +70,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path out/x86 | Out-Null
             Copy-Item -Recurse -Force src/Win32/Release/* out/x86/
           }
+          Get-ChildItem out -Recurse -File -Include *.pdb,*.lib,*.exp,*.iobj,*.ipdb,*.tlog | Remove-Item -Force
           Get-ChildItem out -Recurse -File | Select-Object -First 40 FullName, Length
 
       - name: 上传
