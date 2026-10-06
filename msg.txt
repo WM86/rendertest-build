@@ -1,9 +1,0 @@
-核心 dll 改名 rendertest.dll
-
-原来只改了 exe / shim / 导出的 marker，renderdoc.dll 这个名字留着没动，
-反作弊扫到进程模块名还是能认出来。
-
-现在把 RDOC_BASE_NAME 直接钉成 rendertest（不再跟 $(ProjectName) 走），
-ProjectName 与 TargetName 一起搬过去，让输出文件、导入库、Vulkan layer
-JSON 全叫 rendertest；rc 里的 InternalName / OriginalFilename 两个版本
-字段也跟着改，免得读 PE 版本信息还能读出来。
