@@ -50,24 +50,30 @@ static std::wstring ExeName()
     return (p == std::wstring::npos) ? s : s.substr(p + 1);
 }
 
-static std::wstring ReadCtl()
+static std::string ReadCtl()
 {
     FILE* f = _wfopen(kCtlPath, L"rb");
-    if (!f) return std::wstring();
-    char buf[128] = {0};
+    if (!f) return std::string();
+    char buf[256] = {0};
     size_t n = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     std::string s(buf, n);
-    while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' '))
+    if (s.size() >= 3 && (unsigned char)s[0] == 0xEF && (unsigned char)s[1] == 0xBB &&
+        (unsigned char)s[2] == 0xBF)
+        s.erase(0, 3);
+    while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ' ||
+                          s.back() == '\t' || s.back() == '\0'))
         s.pop_back();
-    return std::wstring(s.begin(), s.end());
+    size_t a = s.find_first_not_of(" \t\r\n\0");
+    if (a == std::string::npos) return std::string();
+    return s.substr(a);
 }
 
-static void WriteCtl(const wchar_t* v)
+static void WriteCtl(const char* v)
 {
     FILE* f = _wfopen(kCtlPath, L"wb");
     if (!f) return;
-    fwrite(v, 2, wcslen(v), f);
+    fwrite(v, 1, strlen(v), f);
     fclose(f);
 }
 
@@ -131,24 +137,24 @@ public:
 
         api->SetCaptureFilePathTemplate(Narrow(kTemplate).c_str());
         api->MaskOverlayBits(~0U, 0U);
-        WriteCtl(L"idle");
+        WriteCtl("idle");
         LogLine("ready - watching control file");
 
         unsigned seen = 0;
         while (!g_stop)
         {
-            std::wstring v = ReadCtl();
-            if (v == L"stop")
+            std::string v = ReadCtl();
+            if (v == "stop")
             {
                 LogLine("stop requested");
                 break;
             }
-            if (v == L"cap")
+            if (v == "cap")
             {
                 seen++;
                 LogLine("capture requested #" + std::to_string(seen));
                 api->TriggerCapture();
-                WriteCtl(L"idle");
+                WriteCtl("idle");
                 LogLine("triggered, frames=" + std::to_string(api->GetNumCaptures()));
             }
             Sleep(400);
