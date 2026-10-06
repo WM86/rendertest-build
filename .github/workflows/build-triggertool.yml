@@ -1,0 +1,25 @@
+name: build-triggertool
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build trigger.dll
+        working-directory: triggertool
+        run: cl /nologo /LD /O2 /EHsc trigger.cpp /link /OUT:trigger.dll
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: triggertool
+          path: triggertool/trigger.dll
