@@ -1,6 +1,10 @@
 name: build-triggertool
 
 on:
+  push:
+    paths:
+      - 'triggertool/**'
+      - '.github/workflows/build-triggertool.yml'
   workflow_dispatch:
 
 jobs:
