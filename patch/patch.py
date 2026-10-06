@@ -81,6 +81,11 @@ RULES = [
 
     # Last literal reference to the core DLL by name
     ("qrenderdoc/Windows/Dialogs/UpdateDialog.cpp", '"renderdoc.dll"', '"rendertest.dll"'),
+
+    # The little launcher stub that spawns qrendertest.exe - rename its output
+    # too, otherwise a stray renderdocui.exe still sits next to the build.
+    ("qrenderdoc/renderdocui_stub.vcxproj",
+     "<TargetName>renderdocui</TargetName>", "<TargetName>rendertestui</TargetName>"),
 ]
 
 
